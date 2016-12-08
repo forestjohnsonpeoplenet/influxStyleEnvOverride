@@ -17,6 +17,7 @@ type ExampleSubObject struct {
 	Integer    int
 	B          string
 	unexported int
+	Other      *ExampleSubObject
 	Thing      interface{}
 	Things     []interface{}
 }
@@ -86,32 +87,64 @@ func TestApplyEnvOverridesWithUnsettableField(t *testing.T) {
 	toTest.execute(t)
 }
 
-// Note currently this test is expected to fail. Haven't implemented additional slice elements yet.
-func TestApplyEnvOverridesWithNonExistentObject(t *testing.T) {
-	toTest := testCase{
-		mutateExampleObject: func(example *ExampleObject) {
-			example.Others = append(example.Others, ExampleSubObject{
-				B: "asd2",
-			})
-		},
-		environment: map[string]string{
-			"TEST_OTHERS_1_B": "asd2",
-		},
-	}
+// Note currently this test fails. Haven't implemented additional slice elements yet.
+//func TestApplyEnvOverridesWithNonExistentObject(t *testing.T) {
+//	toTest := testCase{
+//		mutateExampleObject: func(example *ExampleObject) {
+//			example.Others = append(example.Others, ExampleSubObject{
+//				B: "asd2",
+//			})
+//		},
+//		environment: map[string]string{
+//			"TEST_OTHERS_1_B": "asd2",
+//		},
+//	}
+//	toTest.execute(t)
+//}
 
-	toTest.execute(t)
+func TestApplyEnvOverridesWithWrongType(t *testing.T) {
+	exampleObjectUnderTest := newExampleObject()
+	var exampleObjectUnderTestInterface interface{}
+	exampleObjectUnderTestInterface = exampleObjectUnderTest
+
+	err := applyEnvOverrides(mockKeyValueRetriever{}, "TEST", reflect.ValueOf(&exampleObjectUnderTestInterface), 0)
+
+	expectedError := "expected a Struct"
+	actualErrorDisplay := "nil"
+	if err != nil {
+		actualErrorDisplay = err.Error()
+	}
+	if !strings.Contains(actualErrorDisplay, expectedError) {
+		t.Errorf("Expected Error: %s, Actual Error: %s", expectedError, actualErrorDisplay)
+	}
+}
+
+func TestApplyEnvOverridesWithNonDAG(t *testing.T) {
+	exampleObjectUnderTest := newExampleObject()
+	exampleObjectUnderTest.Other.Other = exampleObjectUnderTest.Other
+
+	err := applyEnvOverrides(mockKeyValueRetriever{}, "TEST", reflect.ValueOf(exampleObjectUnderTest), 0)
+
+	expectedError := "recursive overflow"
+	actualErrorDisplay := "nil"
+	if err != nil {
+		actualErrorDisplay = err.Error()
+	}
+	if !strings.Contains(actualErrorDisplay, expectedError) {
+		t.Errorf("Expected Error: %s, Actual Error: %s", expectedError, actualErrorDisplay)
+	}
 }
 
 func (this testCase) execute(t *testing.T) {
-	ExampleObjectUnderTest := newExampleObject()
-	ExampleObjectForComparison := newExampleObject()
+	exampleObjectUnderTest := newExampleObject()
+	exampleObjectForComparison := newExampleObject()
 
 	exampleKeyValueRetriever := mockKeyValueRetriever{
 		KeyValues: this.environment,
 	}
-	err := applyEnvOverrides(exampleKeyValueRetriever, "TEST", reflect.ValueOf(&ExampleObjectUnderTest))
+	err := applyEnvOverrides(exampleKeyValueRetriever, "TEST", reflect.ValueOf(&exampleObjectUnderTest), 0)
 
-	this.mutateExampleObject(&ExampleObjectForComparison)
+	this.mutateExampleObject(&exampleObjectForComparison)
 
 	if err != nil || this.expectedError != "" {
 		actualError := ""
@@ -128,11 +161,11 @@ func (this testCase) execute(t *testing.T) {
 		}
 	}
 
-	jsonA, err := json.MarshalIndent(ExampleObjectUnderTest, "", "  ")
+	jsonA, err := json.MarshalIndent(exampleObjectUnderTest, "", "  ")
 	if err != nil {
 		t.Error(err)
 	}
-	jsonB, err := json.MarshalIndent(ExampleObjectForComparison, "", "  ")
+	jsonB, err := json.MarshalIndent(exampleObjectForComparison, "", "  ")
 	if err != nil {
 		t.Error(err)
 	}

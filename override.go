@@ -1,6 +1,7 @@
 package influxStyleEnvOverride
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -20,21 +21,29 @@ func (this environmentVariableKeyValueRetriever) get(key string) string {
 }
 
 // ApplyEnvOverrides apply any convention-driven environment varibles on top of the original object.
-func ApplyInfluxStyleEnvOverrides(prefix string, originalObject *interface{}) error {
-	return applyEnvOverrides(environmentVariableKeyValueRetriever{}, prefix, reflect.ValueOf(originalObject))
+func ApplyInfluxStyleEnvOverrides(prefix string, reflectedStruct reflect.Value) error {
+	return applyEnvOverrides(environmentVariableKeyValueRetriever{}, prefix, reflectedStruct, 0)
 }
 
-func applyEnvOverrides(kv keyValueRetriever, prefix string, spec reflect.Value) error {
+func applyEnvOverrides(kv keyValueRetriever, prefix string, spec reflect.Value, depth int) error {
+
+	if depth > 100 {
+		return errors.New("failed to apply environment overrides: recursive overflow. Your object must be a DAG.")
+	}
 
 	// If we have a pointer, dereference it
 	s := spec
-	if spec.Kind() == reflect.Ptr {
+	for s.Kind() == reflect.Ptr {
 		s = spec.Elem()
 	}
 
 	// Make sure we have struct
 	if s.Kind() != reflect.Struct {
-		return nil
+		if depth == 0 {
+			return fmt.Errorf("failed to apply environment overrides: expected a Struct, but a %v was passed", s.Kind())
+		} else {
+			return nil
+		}
 	}
 
 	typeOfSpec := s.Type()
@@ -62,7 +71,7 @@ func applyEnvOverrides(kv keyValueRetriever, prefix string, spec reflect.Value) 
 
 		// If it's a sub-config, recursively apply
 		if f.Kind() == reflect.Struct || f.Kind() == reflect.Ptr {
-			if err := applyEnvOverrides(kv, key, f); err != nil {
+			if err := applyEnvOverrides(kv, key, f, depth+1); err != nil {
 				return err
 			}
 			continue
@@ -86,10 +95,10 @@ func applyEnvOverrides(kv keyValueRetriever, prefix string, spec reflect.Value) 
 			// e.g. GRAPHITE_0
 			if f.Kind() == reflect.Slice || f.Kind() == reflect.Array {
 				for i := 0; i < f.Len(); i++ {
-					if err := applyEnvOverrides(kv, key, f.Index(i)); err != nil {
+					if err := applyEnvOverrides(kv, key, f.Index(i), depth+1); err != nil {
 						return err
 					}
-					if err := applyEnvOverrides(kv, fmt.Sprintf("%s_%d", key, i), f.Index(i)); err != nil {
+					if err := applyEnvOverrides(kv, fmt.Sprintf("%s_%d", key, i), f.Index(i), depth+1); err != nil {
 						return err
 					}
 				}
@@ -148,7 +157,7 @@ func applyEnvOverrides(kv keyValueRetriever, prefix string, spec reflect.Value) 
 				}
 				f.SetFloat(floatValue)
 			default:
-				if err := applyEnvOverrides(kv, key, f); err != nil {
+				if err := applyEnvOverrides(kv, key, f, depth+1); err != nil {
 					return err
 				}
 			}
