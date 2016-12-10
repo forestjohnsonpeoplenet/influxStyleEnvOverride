@@ -49,8 +49,11 @@ func applyEnvOverrides(kv keyValueRetriever, prefix string, spec reflect.Value, 
 	typeOfSpec := s.Type()
 	for i := 0; i < s.NumField(); i++ {
 		f := s.Field(i)
-		// Get the toml tag to determine what env var name to use
-		configName := typeOfSpec.Field(i).Tag.Get("toml")
+		// Get the  tag to determine what env var name to use
+		configName := typeOfSpec.Field(i).Tag.Get("gcfg")
+		if configName == "" {
+			configName = typeOfSpec.Field(i).Tag.Get("toml")
+		}
 		if configName == "" {
 			configName = typeOfSpec.Field(i).Tag.Get("json")
 		}
